@@ -1,5 +1,5 @@
-import logging
 import os
+import logging
 import random
 import string
 from datetime import datetime, timedelta
@@ -11,43 +11,47 @@ from telegram.ext import (
 import firebase_admin
 from firebase_admin import credentials, db
 
-# â”€â”€ CONFIG â”€â”€
+# ÄÄ CONFIG ÄÄ
 BOT_TOKEN = "8851108752:AAERyC1zOg1v-kH7IZcBodmI5hgUTut9p2s"
 ADMIN_ID = 8157078800
 FIREBASE_URL = "https://pro-tools-hub1-f4d55-default-rtdb.firebaseio.com"
 
-# â”€â”€ FIREBASE INIT â”€â”€
+# ÄÄ FIREBASE INIT ÄÄ
 cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred, {'databaseURL': FIREBASE_URL})
 
-# â”€â”€ STATES â”€â”€
+# ÄÄ LOGGING ÄÄ
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# ÄÄ STATES ÄÄ
 WAITING_SCREENSHOT = 1
 WAITING_PLAN = 2
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# â”€â”€ PLANS â”€â”€
+# ÄÄ PLANS ÄÄ
 PLANS = {
-    "7d": {"name": "7 Days", "price": 1200, "days": 7},
-    "15d": {"name": "15 Days", "price": 2200, "days": 15},
-    "30d": {"name": "30 Days", "price": 3300, "days": 30},
+    "7d":   {"name": "7 Days",   "price": 1200, "days": 7},
+    "15d":  {"name": "15 Days",  "price": 2200, "days": 15},
+    "30d":  {"name": "30 Days",  "price": 3300, "days": 30},
     "life": {"name": "Lifetime", "price": 5500, "days": 0},
 }
 
-# â”€â”€ KEY GENERATOR â”€â”€
+# ÄÄ KEY GENERATOR ÄÄ
 def gen_key():
     chars = string.ascii_uppercase + string.digits
     parts = [''.join(random.choices(chars, k=4)) for _ in range(3)]
     return '-'.join(parts)
 
-def save_key_firebase(key, plan_id, user_id, username):
+# ÄÄ SAVE KEY TO FIREBASE ÄÄ
+def save_key(key, plan_id, user_id, username):
     plan = PLANS[plan_id]
     key_path = key.replace('-', '_')
     expiry = None
     if plan['days'] > 0:
         expiry = (datetime.now() + timedelta(days=plan['days'])).isoformat()
-    
     db.reference(f'keys/{key_path}').set({
         'key': key,
         'type': 'premium',
@@ -60,252 +64,298 @@ def save_key_firebase(key, plan_id, user_id, username):
     })
     return key
 
-# â”€â”€ /start â”€â”€
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+# /start
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await update.message.reply_text(
-        f"ğŸ‘‹ *à¦¸à§à¦¬à¦¾à¦—à¦¤à¦® {user.first_name}!*\n\n"
-        f"ğŸ›¡ï¸ *PRO TOOLS HUB* â€” Premium Key System\n\n"
-        f"ğŸ’³ *Payment à¦•à¦°à§à¦¨:*\n"
-        f"â”œ bKash: `01313267554`\n"
-        f"â”” Nagad: `01313267551`\n\n"
-        f"ğŸ“¸ Payment à¦à¦° à¦ªà¦° screenshot à¦ªà¦¾à¦ à¦¾à¦¨\n\n"
-        f"ğŸ“‹ *Plans:*\n"
-        f"â”œ 7 Days â€” à§³1200\n"
-        f"â”œ 15 Days â€” à§³2200\n"
-        f"â”œ 30 Days â€” à§³3300\n"
-        f"â”” Lifetime â€” à§³5500",
+        f" * {user.first_name}!*\n\n"
+        f" *PRO TOOLS HUB*\n"
+        f"Gmail Creator AI  Premium Key System\n\n"
+        f"\n"
+        f" *Payment :*\n"
+        f"Ã bKash: `01313267554`\n"
+        f"À Nagad: `01313267551`\n\n"
+        f"\n"
+        f" *Plans:*\n"
+        f"Ã 7 Days     1200\n"
+        f"Ã 15 Days    2200\n"
+        f"Ã 30 Days    3300 \n"
+        f"À Lifetime   5500 \n\n"
+        f"\n"
+        f" Payment   *screenshot* !",
         parse_mode='Markdown'
     )
     return WAITING_SCREENSHOT
 
-# â”€â”€ SCREENSHOT RECEIVED â”€â”€
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+# SCREENSHOT RECEIVED
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
 async def screenshot_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    
+
     if not update.message.photo:
         await update.message.reply_text(
-            "ğŸ“¸ à¦…à¦¨à§à¦—à§à¦°à¦¹ à¦•à¦°à§‡ *payment screenshot* à¦ªà¦¾à¦ à¦¾à¦¨!",
+            "   *payment screenshot* !\n\n"
+            " /start ",
             parse_mode='Markdown'
         )
         return WAITING_SCREENSHOT
-    
-    # Save user info
+
     context.user_data['user_id'] = user.id
     context.user_data['username'] = user.username or user.first_name
     context.user_data['photo_id'] = update.message.photo[-1].file_id
-    
-    # Plan selection keyboard
+
     keyboard = [
-        [InlineKeyboardButton("7 Days â€” à§³1200", callback_data=f"plan_7d_{user.id}")],
-        [InlineKeyboardButton("15 Days â€” à§³2200", callback_data=f"plan_15d_{user.id}")],
-        [InlineKeyboardButton("30 Days â€” à§³3300 ğŸ”¥", callback_data=f"plan_30d_{user.id}")],
-        [InlineKeyboardButton("Lifetime â€” à§³5500 ğŸ‘‘", callback_data=f"plan_life_{user.id}")],
+        [InlineKeyboardButton("7 Days  1200", callback_data=f"plan_7d_{user.id}")],
+        [InlineKeyboardButton("15 Days  2200", callback_data=f"plan_15d_{user.id}")],
+        [InlineKeyboardButton("30 Days  3300 ", callback_data=f"plan_30d_{user.id}")],
+        [InlineKeyboardButton("Lifetime  5500 ", callback_data=f"plan_life_{user.id}")],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await update.message.reply_text(
-        "âœ… Screenshot à¦ªà¦¾à¦“à¦¯à¦¼à¦¾ à¦—à§‡à¦›à§‡!\n\n"
-        "à¦•à§‹à¦¨ *Plan* à¦¨à¦¿à¦¤à§‡ à¦šà¦¾à¦¨?",
-        reply_markup=reply_markup,
+        " *Screenshot  !*\n\n"
+        " *Plan*  ?\n"
+        "  select  ",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
     return WAITING_PLAN
 
-# â”€â”€ PLAN SELECTED â”€â”€
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+# PLAN SELECTED
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
 async def plan_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     data = query.data.split('_')
     plan_id = data[1]
     user_id = int(data[2])
-    
+
     if query.from_user.id != user_id:
-        await query.answer("âŒ à¦à¦Ÿà¦¾ à¦†à¦ªà¦¨à¦¾à¦° à¦œà¦¨à§à¦¯ à¦¨à¦¾!", show_alert=True)
-        return
-    
+        await query.answer("    !", show_alert=True)
+        return WAITING_PLAN
+
     plan = PLANS[plan_id]
     context.user_data['plan_id'] = plan_id
-    
+
     await query.edit_message_text(
-        f"âœ… Plan selected: *{plan['name']}* â€” à§³{plan['price']}\n\n"
-        f"â³ Admin verify à¦•à¦°à¦›à§‡à¦¨...\n"
-        f"à¦à¦•à¦Ÿà§ à¦…à¦ªà§‡à¦•à§à¦·à¦¾ à¦•à¦°à§à¦¨!",
+        f" *Plan Selected!*\n\n"
+        f" Plan: {plan['name']}\n"
+        f" Amount: {plan['price']}\n\n"
+        f" Admin verify ...\n"
+        f"  ! ",
         parse_mode='Markdown'
     )
-    
-    # Forward to admin
+
     user = query.from_user
     photo_id = context.user_data.get('photo_id')
-    
+
     admin_keyboard = [
         [
             InlineKeyboardButton(
-                "âœ… APPROVE", 
+                " APPROVE",
                 callback_data=f"approve_{user.id}_{plan_id}_{user.username or user.first_name}"
             ),
             InlineKeyboardButton(
-                "âŒ REJECT", 
+                " REJECT",
                 callback_data=f"reject_{user.id}"
             )
         ]
     ]
-    admin_markup = InlineKeyboardMarkup(admin_keyboard)
-    
+
     caption = (
-        f"ğŸ”” *à¦¨à¦¤à§à¦¨ Payment Request!*\n\n"
-        f"ğŸ‘¤ User: {user.first_name} {user.last_name or ''}\n"
-        f"ğŸ†” ID: `{user.id}`\n"
-        f"ğŸ“› Username: @{user.username or 'N/A'}\n\n"
-        f"ğŸ’ Plan: *{plan['name']}*\n"
-        f"ğŸ’° Amount: à§³{plan['price']}\n\n"
-        f"âš ï¸ *bKash/Nagad à¦šà§‡à¦• à¦•à¦°à§à¦¨ à¦¤à¦¾à¦°à¦ªà¦° Approve à¦•à¦°à§à¦¨!*\n"
-        f"ğŸ“± bKash: 01313267554\n"
-        f"ğŸ“± Nagad: 01313267551"
+        f" * Payment Request!*\n\n"
+        f" Name: {user.first_name} {user.last_name or ''}\n"
+        f" ID: `{user.id}`\n"
+        f" Username: @{user.username or 'N/A'}\n\n"
+        f"\n"
+        f" Plan: *{plan['name']}*\n"
+        f" Amount: {plan['price']}\n\n"
+        f"\n"
+        f" * bKash/Nagad  !*\n"
+        f" bKash: 01313267554\n"
+        f" Nagad: 01313267551\n\n"
+        f" Approve  Reject  "
     )
-    
+
     await context.bot.send_photo(
         chat_id=ADMIN_ID,
         photo=photo_id,
         caption=caption,
-        reply_markup=admin_markup,
+        reply_markup=InlineKeyboardMarkup(admin_keyboard),
         parse_mode='Markdown'
     )
 
-# â”€â”€ ADMIN APPROVE â”€â”€
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+# ADMIN CALLBACK
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     if query.from_user.id != ADMIN_ID:
-        await query.answer("âŒ à¦†à¦ªà¦¨à¦¿ Admin à¦¨à¦¾!", show_alert=True)
+        await query.answer("  Admin !", show_alert=True)
         return
-    
+
     data = query.data.split('_')
     action = data[0]
     target_user_id = int(data[1])
-    
+
     if action == "approve":
         plan_id = data[2]
         username = data[3] if len(data) > 3 else "User"
         plan = PLANS[plan_id]
-        
-        # Generate Key
+
         key = gen_key()
-        save_key_firebase(key, plan_id, target_user_id, username)
-        
-        # Send key to user
-        expiry_text = "à¦•à¦–à¦¨à§‹ Expire à¦¹à¦¬à§‡ à¦¨à¦¾ â™¾ï¸" if plan['days'] == 0 else f"{plan['days']} à¦¦à¦¿à¦¨ à¦ªà¦° Expire à¦¹à¦¬à§‡"
-        
+        save_key(key, plan_id, target_user_id, username)
+
+        expiry_text = (
+            " Expire   "
+            if plan['days'] == 0
+            else f"{plan['days']}   Expire "
+        )
+
         await context.bot.send_message(
             chat_id=target_user_id,
             text=(
-                f"ğŸ‰ *Payment Approved!*\n\n"
-                f"âœ… à¦†à¦ªà¦¨à¦¾à¦° Premium Key:\n\n"
+                f" *Payment Approved!*\n\n"
+                f"\n"
+                f" * Premium Key:*\n\n"
                 f"`{key}`\n\n"
-                f"ğŸ“‹ *Key Details:*\n"
-                f"â”œ Plan: {plan['name']}\n"
-                f"â”œ Valid: {expiry_text}\n"
-                f"â”” Type: Premium\n\n"
-                f"ğŸ“± *à¦•à§€à¦­à¦¾à¦¬à§‡ Use à¦•à¦°à¦¬à§‡à¦¨:*\n"
-                f"1. App à¦–à§à¦²à§à¦¨\n"
-                f"2. Key à¦Ÿà¦¾ paste à¦•à¦°à§à¦¨\n"
-                f"3. Unlock à¦šà¦¾à¦ªà§à¦¨\n\n"
-                f"âš ï¸ à¦à¦‡ Key à¦¶à§à¦§à§ *à¦à¦•à¦Ÿà¦¿ Device* à¦ à¦•à¦¾à¦œ à¦•à¦°à¦¬à§‡!\n\n"
-                f"ğŸ™ PRO TOOLS HUB à¦¬à§à¦¯à¦¬à¦¹à¦¾à¦° à¦•à¦°à¦¾à¦° à¦œà¦¨à§à¦¯ à¦§à¦¨à§à¦¯à¦¬à¦¾à¦¦!"
+                f"\n"
+                f" *Key Details:*\n"
+                f"Ã Plan: {plan['name']}\n"
+                f"Ã Valid: {expiry_text}\n"
+                f"À Type: Premium \n\n"
+                f"\n"
+                f" * Use :*\n"
+                f"1 App \n"
+                f"2 Key  copy \n"
+                f"3 Paste \n"
+                f"4 Unlock  \n\n"
+                f"  Key  * Device*   !\n\n"
+                f" PRO TOOLS HUB    !\n"
+                f" : @tarakislam1"
             ),
-            parse_mode='Markdown'
-        )
-        
-        # Update admin message
-        await query.edit_message_caption(
-            caption=(
-                f"âœ… *APPROVED!*\n\n"
-                f"ğŸ‘¤ User ID: {target_user_id}\n"
-                f"ğŸ’ Plan: {plan['name']}\n"
-                f"ğŸ”‘ Key: `{key}`\n\n"
-                f"Key à¦ªà¦¾à¦ à¦¾à¦¨à§‹ à¦¹à¦¯à¦¼à§‡à¦›à§‡!"
-            ),
-            parse_mode='Markdown'
-        )
-        
-        logger.info(f"Key approved: {key} for user {target_user_id}")
-    
-    elif action == "reject":
-        # Notify user
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=(
-                "âŒ *Payment Verified à¦¹à¦¯à¦¼à¦¨à¦¿!*\n\n"
-                "à¦†à¦ªà¦¨à¦¾à¦° payment à¦†à¦®à¦¾à¦¦à§‡à¦° à¦•à¦¾à¦›à§‡ à¦ªà§Œà¦à¦›à¦¾à¦¯à¦¼à¦¨à¦¿à¥¤\n\n"
-                "âœ… *à¦¸à¦ à¦¿à¦• à¦¨à¦®à§à¦¬à¦°à§‡ à¦ªà¦¾à¦ à¦¾à¦¨:*\n"
-                "â”œ bKash: `01313267554`\n"
-                "â”” Nagad: `01313267551`\n\n"
-                "Payment à¦•à¦°à¦¾à¦° à¦ªà¦° à¦†à¦¬à¦¾à¦° screenshot à¦ªà¦¾à¦ à¦¾à¦¨à¥¤\n\n"
-                "à¦¸à¦®à¦¸à§à¦¯à¦¾ à¦¹à¦²à§‡: @tarakislam1"
-            ),
-            parse_mode='Markdown'
-        )
-        
-        # Update admin message
-        await query.edit_message_caption(
-            caption="âŒ *REJECTED!*\n\nUser à¦•à§‡ à¦œà¦¾à¦¨à¦¾à¦¨à§‹ à¦¹à¦¯à¦¼à§‡à¦›à§‡à¥¤",
             parse_mode='Markdown'
         )
 
-# â”€â”€ TEXT HANDLER â”€â”€
+        await query.edit_message_caption(
+            caption=(
+                f" *APPROVED!*\n\n"
+                f" User: {target_user_id}\n"
+                f" Plan: {plan['name']}\n"
+                f" Key: `{key}`\n\n"
+                f" Key  !"
+            ),
+            parse_mode='Markdown'
+        )
+
+    elif action == "reject":
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=(
+                f" *Payment Verified !*\n\n"
+                f" payment   \n\n"
+                f"\n"
+                f" *  :*\n"
+                f"Ã bKash: `01313267554`\n"
+                f"À Nagad: `01313267551`\n\n"
+                f"\n"
+                f"Payment   \n"
+                f"screenshot \n\n"
+                f" : @tarakislam1"
+            ),
+            parse_mode='Markdown'
+        )
+
+        await query.edit_message_caption(
+            caption=(
+                f" *REJECTED!*\n\n"
+                f"User   "
+            ),
+            parse_mode='Markdown'
+        )
+
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+# TEXT HANDLER
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "ğŸ“¸ Payment screenshot à¦ªà¦¾à¦ à¦¾à¦¨ à¦…à¦¥à¦¬à¦¾ /start à¦šà¦¾à¦ªà§à¦¨à¥¤"
+        " Payment  *screenshot* !\n\n"
+        " /start ",
+        parse_mode='Markdown'
     )
     return WAITING_SCREENSHOT
 
-# â”€â”€ ADMIN COMMANDS â”€â”€
-async def admin_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+# ADMIN COMMANDS
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
-    # Generate manual key
+
     args = context.args
     plan_id = args[0] if args else "30d"
+
     if plan_id not in PLANS:
-        await update.message.reply_text("âŒ Plan: 7d, 15d, 30d, life")
+        await update.message.reply_text(
+            " Plan  !\n\n"
+            "  format:\n"
+            "/genkey 7d\n"
+            "/genkey 15d\n"
+            "/genkey 30d\n"
+            "/genkey life"
+        )
         return
-    
+
     key = gen_key()
-    save_key_firebase(key, plan_id, 0, "Manual")
+    save_key(key, plan_id, 0, "Manual-Admin")
     plan = PLANS[plan_id]
-    
+
     await update.message.reply_text(
-        f"ğŸ”‘ *New Key Generated!*\n\n"
+        f" *New Key Generated!*\n\n"
         f"`{key}`\n\n"
+        f"\n"
         f"Plan: {plan['name']}\n"
-        f"Price: à§³{plan['price']}",
+        f"Price: {plan['price']}\n"
+        f"Type: Premium ",
         parse_mode='Markdown'
     )
 
-async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    
-    keys_ref = db.reference('keys')
-    keys = keys_ref.get() or {}
-    
-    total = len(keys)
-    active = sum(1 for k in keys.values() if k.get('active'))
-    
-    await update.message.reply_text(
-        f"ğŸ“Š *Stats:*\n\n"
-        f"Total Keys: {total}\n"
-        f"Active Keys: {active}",
-        parse_mode='Markdown'
-    )
 
-# â”€â”€ MAIN â”€â”€
+    try:
+        keys = db.reference('keys').get() or {}
+        total = len(keys)
+        active = sum(1 for k in keys.values() if k.get('active'))
+        trial = sum(1 for k in keys.values() if k.get('type') == 'trial')
+        premium = sum(1 for k in keys.values() if k.get('type') == 'premium')
+
+        await update.message.reply_text(
+            f" *PRO TOOLS HUB Stats*\n\n"
+            f"\n"
+            f" Total Keys: {total}\n"
+            f" Active: {active}\n"
+            f" Premium: {premium}\n"
+            f" Trial: {trial}\n"
+            f"",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        await update.message.reply_text(f" Error: {e}")
+
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+# MAIN
+# ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-    
+
     conv = ConversationHandler(
         entry_points=[
             CommandHandler('start', start),
@@ -314,7 +364,7 @@ def main():
         states={
             WAITING_SCREENSHOT: [
                 MessageHandler(filters.PHOTO, screenshot_received),
-                MessageHandler(filters.TEXT, text_handler),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler),
             ],
             WAITING_PLAN: [
                 CallbackQueryHandler(plan_selected, pattern=r'^plan_'),
@@ -322,15 +372,21 @@ def main():
         },
         fallbacks=[CommandHandler('start', start)],
         per_user=True,
+        per_chat=True,
     )
-    
+
     app.add_handler(conv)
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r'^(approve|reject)_'))
-    app.add_handler(CommandHandler('genkey', admin_keys))
-    app.add_handler(CommandHandler('stats', admin_stats))
-    
-    print("âœ… Bot à¦šà¦¾à¦²à§ à¦¹à¦¯à¦¼à§‡à¦›à§‡!")
-    app.run_polling(drop_pending_updates=True)
+    app.add_handler(CommandHandler('genkey', genkey))
+    app.add_handler(CommandHandler('stats', stats))
+
+    print(" Bot  !")
+    logger.info("Bot started successfully!")
+
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES
+    )
 
 if __name__ == '__main__':
     main()
