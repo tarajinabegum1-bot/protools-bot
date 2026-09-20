@@ -12,10 +12,10 @@ BOT_TOKEN = "8851108752:AAERyC1zOg1v-kH7IZcBodmI5hgUTut9p2s"
 ADMIN_ID = 8157078800
 
 PLANS = {
-    "7d":   {"name": "7 Days",   "price": "1200 BDT / 11 USDT"},
-    "15d":  {"name": "15 Days",  "price": "2200 BDT / 20 USDT"},
-    "30d":  {"name": "30 Days",  "price": "3300 BDT / 30 USDT"},
-    "life": {"name": "Lifetime", "price": "5500 BDT / 50 USDT"},
+    "7d":   {"name": "7 Days",   "price": "1200 BDT / 12 USDT"},
+    "15d":  {"name": "15 Days",  "price": "2200 BDT / 22 USDT"},
+    "30d":  {"name": "30 Days",  "price": "3300 BDT / 33 USDT"},
+    "life": {"name": "Lifetime", "price": "5500 BDT / 54 USDT"},
 }
 
 PLAN_DAYS = {"7d": 7, "15d": 15, "30d": 30, "life": 36500}
@@ -64,7 +64,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Welcome to PRO TOOLS HUB!\n\n"
         "Payment Methods:\n\n"
-        "bKash: 01313267554\n"
+        "bKash: 01313267551\n"
         "Nagad: 01313267551\n"
         "USDT TRC20:\n"
         "TBf8Mh5DwCCHH4evg4AdVdQ26XLNmpxQts\n\n"
