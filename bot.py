@@ -1,13 +1,31 @@
 import logging
 import random
 import string
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ConversationHandler, ContextTypes, filters
+)
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
-# Keep alive server
+# ===== CONFIG =====
+BOT_TOKEN = "8851108752:AAERyC1zOg1v-kH7IZcBodmI5hgUTut9p2s"
+ADMIN_ID = 8157078800
+
+# ===== STATES =====
+PHOTO = 1
+SELECT_PLAN = 2
+
+# ===== STORAGE =====
+pending_payments = {}
+
+# ===== LOGGING =====
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ===== KEEP ALIVE =====
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -17,226 +35,241 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 def run_server():
-    server = HTTPServer(('0.0.0.0', 8080), Handler)
+    server = HTTPServer(("0.0.0.0", 8080), Handler)
     server.serve_forever()
 
-threading.Thread(target=run_server, daemon=True).start()
-
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-BOT_TOKEN = "8851108752:AAERyC1zOg1v-kH7IZcBodmI5hgUTut9p2s"
-ADMIN_ID = 8157078800
-
+# ===== PLANS =====
 PLANS = {
-    "7d":   {"name": "7 Days",   "price": "1200 BDT / 11 USDT"},
-    "15d":  {"name": "15 Days",  "price": "2200 BDT / 20 USDT"},
-    "30d":  {"name": "30 Days",  "price": "3300 BDT / 30 USDT"},
-    "life": {"name": "Lifetime", "price": "5500 BDT / 50 USDT"},
+    "7d": {"name": "7 Days", "bdt": "1200", "usdt": "11"},
+    "15d": {"name": "15 Days", "bdt": "2200", "usdt": "20"},
+    "30d": {"name": "30 Days", "bdt": "3300", "usdt": "30"},
+    "lifetime": {"name": "Lifetime", "bdt": "5500", "usdt": "50"},
 }
 
-PLAN_DAYS = {"7d": 7, "15d": 15, "30d": 30, "life": 36500}
-PHOTO, SELECT_PLAN = range(2)
-pending_payments = {}
-
-def generate_key():
-    chars = string.ascii_uppercase + string.digits
-    return "-".join("".join(random.choices(chars, k=4)) for _ in range(3))
-
-def save_key_firebase(key, plan, user_id=None):
-    try:
-        import firebase_admin
-        from firebase_admin import credentials, db
-        if not firebase_admin._apps:
-            cred = credentials.Certificate("firebase_key.json")
-            firebase_admin.initialize_app(cred, {"databaseURL": "https://pro-tools-hub1-f4d55-default-rtdb.firebaseio.com"})
-        days = PLAN_DAYS.get(plan, 30)
-        expiry = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-        key_id = key.replace("-", "_")
-        db.reference(f"keys/{key_id}").set({
-            "key": key, "type": "premium", "plan": plan,
-            "expiry": expiry, "active": True,
-            "usedBy": user_id or "", "createdAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "createdFor": str(user_id or "admin"),
-        })
-        return True
-    except Exception as e:
-        logger.error(f"Firebase error: {e}")
-        return False
-
-def get_stats_firebase():
-    try:
-        import firebase_admin
-        from firebase_admin import credentials, db
-        if not firebase_admin._apps:
-            cred = credentials.Certificate("firebase_key.json")
-            firebase_admin.initialize_app(cred, {"databaseURL": "https://pro-tools-hub1-f4d55-default-rtdb.firebaseio.com"})
-        keys = db.reference("keys").get() or {}
-        return len(keys), sum(1 for k in keys.values() if k.get("active"))
-    except Exception as e:
-        logger.error(f"Firebase stats error: {e}")
-        return 0, 0
-
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    text = (
         "Welcome to PRO TOOLS HUB!\n\n"
-        "Payment Methods:\n\n"
+        "Send your payment screenshot to get Premium Access.\n\n"
+        "Payment Methods:\n"
         "bKash: 01313267551\n"
         "Nagad: 01313267551\n"
-        "USDT TRC20:\n"
-        "TBf8Mh5DwCCHH4evg4AdVdQ26XLNmpxQts\n\n"
+        "USDT TRC20: TBf8Mh5DwCCHH4evg4AdVdQ26XLNmpxQts\n\n"
         "Plans:\n"
         "7 Days - 1200 BDT / 11 USDT\n"
         "15 Days - 2200 BDT / 20 USDT\n"
         "30 Days - 3300 BDT / 30 USDT\n"
         "Lifetime - 5500 BDT / 50 USDT\n\n"
-        "Send your payment screenshot!"
+        "Send screenshot now!"
     )
+    await update.message.reply_text(text)
     return PHOTO
 
-async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]
-    context.user_data["photo_id"] = photo.file_id
+# ===== PHOTO RECEIVED =====
+async def photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["photo_id"] = update.message.photo[-1].file_id
     keyboard = [
-        [InlineKeyboardButton("7 Days - 1200 BDT / 12 USDT", callback_data="plan_7d")],
-        [InlineKeyboardButton("15 Days - 2200 BDT / 22 USDT", callback_data="plan_15d")],
-        [InlineKeyboardButton("30 Days - 3300 BDT / 33 USDT", callback_data="plan_30d")],
-        [InlineKeyboardButton("Lifetime - 5500 BDT / 54 USDT", callback_data="plan_life")],
+        [InlineKeyboardButton("7 Days - 1200 BDT / 11 USDT", callback_data="plan_7d")],
+        [InlineKeyboardButton("15 Days - 2200 BDT / 20 USDT", callback_data="plan_15d")],
+        [InlineKeyboardButton("30 Days - 3300 BDT / 30 USDT", callback_data="plan_30d")],
+        [InlineKeyboardButton("Lifetime - 5500 BDT / 50 USDT", callback_data="plan_lifetime")],
     ]
-    await update.message.reply_text("Screenshot received! Select your plan:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return SELECT_PLAN
-
-async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    plan_id = query.data.replace("plan_", "")
-    plan = PLANS[plan_id]
-    user = query.from_user
-    photo_id = context.user_data.get("photo_id")
-    payment_id = f"{user.id}_{plan_id}"
-    pending_payments[payment_id] = {
-        "user_id": user.id, "username": user.username or user.first_name,
-        "plan_id": plan_id, "plan_name": plan["name"],
-        "plan_price": plan["price"], "photo_id": photo_id,
-    }
-    keyboard = [[
-        InlineKeyboardButton("APPROVE", callback_data=f"approve_{payment_id}"),
-        InlineKeyboardButton("REJECT", callback_data=f"reject_{payment_id}"),
-    ]]
-    await context.bot.send_photo(
-        chat_id=ADMIN_ID, photo=photo_id,
-        caption=(
-            f"New Payment Request!\n\n"
-            f"User: @{user.username or 'N/A'} ({user.id})\n"
-            f"Plan: {plan['name']}\n"
-            f"Amount: {plan['price']}\n\n"
-            f"Check bKash / Nagad / USDT TRC20 then decide."
-        ),
+    await update.message.reply_text(
+        "Screenshot received! Now select your plan:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    return SELECT_PLAN
+
+# ===== PLAN SELECTED =====
+async def plan_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    plan_key = query.data.replace("plan_", "")
+    plan = PLANS[plan_key]
+    user = query.from_user
+    user_id = user.id
+    username = f"@{user.username}" if user.username else user.first_name
+
+    pending_payments[user_id] = {
+        "plan": plan_key,
+        "plan_name": plan["name"],
+        "username": username,
+        "photo_id": context.user_data["photo_id"],
+    }
+
     await query.edit_message_text(
-        f"Payment sent for verification!\n"
-        f"Plan: {plan['name']} ({plan['price']})\n\n"
-        f"Wait for admin approval!"
+        f"Plan selected: {plan['name']}\n"
+        "Your payment is being reviewed. Please wait..."
+    )
+
+    # Forward to admin
+    keyboard = [
+        [InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}")],
+    ]
+    caption = (
+        f"New Payment Request!\n\n"
+        f"User: {username}\n"
+        f"User ID: {user_id}\n"
+        f"Plan: {plan['name']} ({plan['bdt']} BDT / {plan['usdt']} USDT)\n\n"
+        f"To APPROVE, send:\n"
+        f"/approve {user_id} YOUR-KEY-HERE\n\n"
+        f"Example:\n"
+        f"/approve {user_id} ABCD-EFGH-IJKL"
+    )
+    await context.bot.send_photo(
+        chat_id=ADMIN_ID,
+        photo=context.user_data["photo_id"],
+        caption=caption,
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ConversationHandler.END
 
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.from_user.id != ADMIN_ID:
-        await query.answer("You are not admin!", show_alert=True)
+# ===== ADMIN APPROVE WITH KEY =====
+async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not admin!")
         return
-    data = query.data
-    if data.startswith("approve_"):
-        payment_id = data.replace("approve_", "")
-        payment = pending_payments.get(payment_id)
-        if not payment:
-            await query.edit_message_caption("Payment data not found!")
-            return
-        key = generate_key()
-        saved = save_key_firebase(key, payment["plan_id"], payment["user_id"])
+
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "Usage: /approve [user_id] [KEY]\n\n"
+            "Example:\n"
+            "/approve 987654321 ABCD-EFGH-IJKL"
+        )
+        return
+
+    try:
+        user_id = int(args[0])
+        key = args[1].upper().strip()
+    except:
+        await update.message.reply_text("Invalid format! Use: /approve [user_id] [KEY]")
+        return
+
+    # Validate key format XXXX-XXXX-XXXX
+    import re
+    if not re.match(r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$', key):
+        await update.message.reply_text(
+            "Invalid key format!\n"
+            "Key must be: XXXX-XXXX-XXXX\n"
+            "Example: ABCD-EFGH-1234"
+        )
+        return
+
+    # Get payment info
+    payment = pending_payments.get(user_id)
+    if payment:
+        plan_name = payment.get("plan_name", "Unknown")
+        username = payment.get("username", "User")
+    else:
+        plan_name = "Unknown"
+        username = "User"
+
+    # Send key to user
+    try:
         await context.bot.send_message(
-            chat_id=payment["user_id"],
+            chat_id=user_id,
             text=(
                 f"Payment Approved!\n\n"
-                f"Plan: {payment['plan_name']} ({payment['plan_price']})\n\n"
-                f"Your Premium Key:\n{key}\n\n"
-                f"Use this key in PRO TOOLS HUB!"
+                f"Your Premium Key:\n"
+                f"`{key}`\n\n"
+                f"Plan: {plan_name}\n\n"
+                f"How to activate:\n"
+                f"1. Go to: https://tarajinabegum1-bot.github.io/pro-tools-hub/index.html\n"
+                f"2. Enter the key above\n"
+                f"3. Click Unlock Access\n\n"
+                f"Enjoy Premium!"
+            ),
+            parse_mode="Markdown"
+        )
+
+        # Confirm to admin
+        await update.message.reply_text(
+            f"Approved!\n\n"
+            f"User: {username}\n"
+            f"User ID: {user_id}\n"
+            f"Plan: {plan_name}\n"
+            f"Key Sent: {key}"
+        )
+
+        # Remove from pending
+        if user_id in pending_payments:
+            del pending_payments[user_id]
+
+    except Exception as e:
+        await update.message.reply_text(f"Error sending key to user: {e}")
+
+# ===== ADMIN REJECT =====
+async def reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("You are not admin!")
+        return
+    await query.answer()
+
+    user_id = int(query.data.replace("reject_", ""))
+
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                "Payment Rejected!\n\n"
+                "Your payment was not verified.\n"
+                "Please check:\n"
+                "- Correct bKash/Nagad/USDT number\n"
+                "- Send clear screenshot\n\n"
+                "Try again or contact: @tarakislam1"
             )
         )
         await query.edit_message_caption(
-            f"Approved!\n"
-            f"User: {payment['user_id']}\n"
-            f"Key: {key}\n"
-            f"Plan: {payment['plan_name']}\n"
-            f"{'Saved to Firebase' if saved else 'Firebase save failed'}"
+            caption=query.message.caption + "\n\nSTATUS: REJECTED"
         )
-        pending_payments.pop(payment_id, None)
-    elif data.startswith("reject_"):
-        payment_id = data.replace("reject_", "")
-        payment = pending_payments.get(payment_id)
-        if not payment:
-            await query.edit_message_caption("Payment data not found!")
-            return
-        await context.bot.send_message(
-            chat_id=payment["user_id"],
-            text=(
-                "Payment Rejected!\n\n"
-                "Payment could not be verified.\n\n"
-                "Payment Methods:\n"
-                "bKash: 01313267551\n"
-                "Nagad: 01313267551\n"
-                "USDT TRC20:\n"
-                "TBf8Mh5DwCCHH4evg4AdVdQ26XLNmpxQts\n\n"
-                "Help: @tarakislam1"
-            )
-        )
-        await query.edit_message_caption(f"Rejected!\nUser: {payment['user_id']}")
-        pending_payments.pop(payment_id, None)
+        if user_id in pending_payments:
+            del pending_payments[user_id]
+    except Exception as e:
+        await query.message.reply_text(f"Error: {e}")
 
-async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    args = context.args
-    if not args or args[0] not in PLANS:
-        await update.message.reply_text("Usage: /genkey 7d | 15d | 30d | life")
-        return
-    plan_id = args[0]
-    key = generate_key()
-    saved = save_key_firebase(key, plan_id)
-    await update.message.reply_text(
-        f"New Key:\n{key}\n"
-        f"Plan: {PLANS[plan_id]['name']}\n"
-        f"{'Saved to Firebase' if saved else 'Firebase save failed'}"
-    )
-
+# ===== STATS =====
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("You are not admin!")
         return
-    total, active = get_stats_firebase()
+    count = len(pending_payments)
     await update.message.reply_text(
-        f"Stats:\n"
-        f"Total Keys: {total}\n"
-        f"Active: {active}\n"
-        f"Pending: {len(pending_payments)}"
+        f"Bot Stats:\n\n"
+        f"Pending Payments: {count}\n"
+        f"Bot Status: Running"
     )
 
+# ===== CANCEL =====
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Cancelled.")
+    return ConversationHandler.END
+
+# ===== MAIN =====
 def main():
+    threading.Thread(target=run_server, daemon=True).start()
+
     app = Application.builder().token(BOT_TOKEN).build()
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start), MessageHandler(filters.PHOTO, receive_photo)],
+
+    conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("start", start),
+            MessageHandler(filters.PHOTO, photo_received),
+        ],
         states={
-            PHOTO: [MessageHandler(filters.PHOTO, receive_photo)],
-            SELECT_PLAN: [CallbackQueryHandler(select_plan, pattern="^plan_")],
+            PHOTO: [MessageHandler(filters.PHOTO, photo_received)],
+            SELECT_PLAN: [CallbackQueryHandler(plan_selected, pattern="^plan_")],
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
-    app.add_handler(conv_handler)
-    app.add_handler(CallbackQueryHandler(admin_callback, pattern="^(approve|reject)_"))
-    app.add_handler(CommandHandler("genkey", genkey))
+
+    app.add_handler(conv)
+    app.add_handler(CommandHandler("approve", approve))
     app.add_handler(CommandHandler("stats", stats))
-    logger.info("Bot starting...")
+    app.add_handler(CallbackQueryHandler(reject_callback, pattern="^reject_"))
+
+    logger.info("Bot started!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
