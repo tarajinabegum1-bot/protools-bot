@@ -1,9 +1,26 @@
 import logging
 import random
 import string
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
+
+# Keep alive server
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+    def log_message(self, format, *args):
+        pass
+
+def run_server():
+    server = HTTPServer(('0.0.0.0', 8080), Handler)
+    server.serve_forever()
+
+threading.Thread(target=run_server, daemon=True).start()
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -81,10 +98,10 @@ async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1]
     context.user_data["photo_id"] = photo.file_id
     keyboard = [
-        [InlineKeyboardButton("7 Days - 1200 BDT / 11 USDT", callback_data="plan_7d")],
-        [InlineKeyboardButton("15 Days - 2200 BDT / 20 USDT", callback_data="plan_15d")],
-        [InlineKeyboardButton("30 Days - 3300 BDT / 30 USDT", callback_data="plan_30d")],
-        [InlineKeyboardButton("Lifetime - 5500 BDT / 50 USDT", callback_data="plan_life")],
+        [InlineKeyboardButton("7 Days - 1200 BDT / 12 USDT", callback_data="plan_7d")],
+        [InlineKeyboardButton("15 Days - 2200 BDT / 22 USDT", callback_data="plan_15d")],
+        [InlineKeyboardButton("30 Days - 3300 BDT / 33 USDT", callback_data="plan_30d")],
+        [InlineKeyboardButton("Lifetime - 5500 BDT / 54 USDT", callback_data="plan_life")],
     ]
     await update.message.reply_text("Screenshot received! Select your plan:", reply_markup=InlineKeyboardMarkup(keyboard))
     return SELECT_PLAN
