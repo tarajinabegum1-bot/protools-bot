@@ -1,24 +1,11 @@
-# -*- coding: utf-8 -*-
 import logging
 import random
 import string
-import asyncio
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    filters,
-    ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = "8851108752:AAERyC1zOg1v-kH7IZcBodmI5hgUTut9p2s"
@@ -35,11 +22,9 @@ PLAN_DAYS = {"7d": 7, "15d": 15, "30d": 30, "life": 36500}
 PHOTO, SELECT_PLAN = range(2)
 pending_payments = {}
 
-
 def generate_key():
     chars = string.ascii_uppercase + string.digits
     return "-".join("".join(random.choices(chars, k=4)) for _ in range(3))
-
 
 def save_key_firebase(key, plan, user_id=None):
     try:
@@ -47,21 +32,14 @@ def save_key_firebase(key, plan, user_id=None):
         from firebase_admin import credentials, db
         if not firebase_admin._apps:
             cred = credentials.Certificate("firebase_key.json")
-            firebase_admin.initialize_app(cred, {
-                "databaseURL": "https://pro-tools-hub1-f4d55-default-rtdb.firebaseio.com"
-            })
+            firebase_admin.initialize_app(cred, {"databaseURL": "https://pro-tools-hub1-f4d55-default-rtdb.firebaseio.com"})
         days = PLAN_DAYS.get(plan, 30)
         expiry = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
         key_id = key.replace("-", "_")
-        ref = db.reference(f"keys/{key_id}")
-        ref.set({
-            "key": key,
-            "type": "premium",
-            "plan": plan,
-            "expiry": expiry,
-            "active": True,
-            "usedBy": user_id or "",
-            "createdAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        db.reference(f"keys/{key_id}").set({
+            "key": key, "type": "premium", "plan": plan,
+            "expiry": expiry, "active": True,
+            "usedBy": user_id or "", "createdAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "createdFor": str(user_id or "admin"),
         })
         return True
@@ -69,24 +47,18 @@ def save_key_firebase(key, plan, user_id=None):
         logger.error(f"Firebase error: {e}")
         return False
 
-
 def get_stats_firebase():
     try:
         import firebase_admin
         from firebase_admin import credentials, db
         if not firebase_admin._apps:
             cred = credentials.Certificate("firebase_key.json")
-            firebase_admin.initialize_app(cred, {
-                "databaseURL": "https://pro-tools-hub1-f4d55-default-rtdb.firebaseio.com"
-            })
+            firebase_admin.initialize_app(cred, {"databaseURL": "https://pro-tools-hub1-f4d55-default-rtdb.firebaseio.com"})
         keys = db.reference("keys").get() or {}
-        total = len(keys)
-        active = sum(1 for k in keys.values() if k.get("active"))
-        return total, active
+        return len(keys), sum(1 for k in keys.values() if k.get("active"))
     except Exception as e:
         logger.error(f"Firebase stats error: {e}")
         return 0, 0
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -103,7 +75,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return PHOTO
 
-
 async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1]
     context.user_data["photo_id"] = photo.file_id
@@ -113,12 +84,8 @@ async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("30 Days - 3300 BDT", callback_data="plan_30d")],
         [InlineKeyboardButton("Lifetime - 5500 BDT", callback_data="plan_life")],
     ]
-    await update.message.reply_text(
-        "Screenshot received! Select your plan:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await update.message.reply_text("Screenshot received! Select your plan:", reply_markup=InlineKeyboardMarkup(keyboard))
     return SELECT_PLAN
-
 
 async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -127,53 +94,31 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan = PLANS[plan_id]
     user = query.from_user
     photo_id = context.user_data.get("photo_id")
-
     payment_id = f"{user.id}_{plan_id}"
     pending_payments[payment_id] = {
-        "user_id": user.id,
-        "username": user.username or user.first_name,
-        "plan_id": plan_id,
-        "plan_name": plan["name"],
-        "plan_price": plan["price"],
-        "photo_id": photo_id,
+        "user_id": user.id, "username": user.username or user.first_name,
+        "plan_id": plan_id, "plan_name": plan["name"],
+        "plan_price": plan["price"], "photo_id": photo_id,
     }
-
     keyboard = [[
         InlineKeyboardButton("APPROVE", callback_data=f"approve_{payment_id}"),
         InlineKeyboardButton("REJECT", callback_data=f"reject_{payment_id}"),
     ]]
-
     await context.bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=photo_id,
-        caption=(
-            f"New Payment!\n\n"
-            f"User: @{user.username or 'N/A'} ({user.id})\n"
-            f"Plan: {plan['name']}\n"
-            f"Amount: {plan['price']}\n\n"
-            f"Check bKash/Nagad then decide."
-        ),
+        chat_id=ADMIN_ID, photo=photo_id,
+        caption=f"New Payment!\nUser: @{user.username or 'N/A'} ({user.id})\nPlan: {plan['name']}\nAmount: {plan['price']}\n\nCheck bKash/Nagad then decide.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
-    await query.edit_message_text(
-        f"Payment sent for verification!\n"
-        f"Plan: {plan['name']} ({plan['price']})\n\n"
-        f"Wait for admin approval. You will receive your key soon!"
-    )
+    await query.edit_message_text(f"Payment sent for verification!\nPlan: {plan['name']} ({plan['price']})\n\nWait for admin approval!")
     return ConversationHandler.END
-
 
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     if query.from_user.id != ADMIN_ID:
         await query.answer("You are not admin!", show_alert=True)
         return
-
     data = query.data
-
     if data.startswith("approve_"):
         payment_id = data.replace("approve_", "")
         payment = pending_payments.get(payment_id)
@@ -184,20 +129,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         saved = save_key_firebase(key, payment["plan_id"], payment["user_id"])
         await context.bot.send_message(
             chat_id=payment["user_id"],
-            text=(
-                f"Payment Approved!\n\n"
-                f"Plan: {payment['plan_name']} ({payment['plan_price']})\n\n"
-                f"Your Premium Key:\n{key}\n\n"
-                f"Use this key in PRO TOOLS HUB!"
-            )
+            text=f"Payment Approved!\n\nPlan: {payment['plan_name']} ({payment['plan_price']})\n\nYour Premium Key:\n{key}\n\nUse this key in PRO TOOLS HUB!"
         )
-        status = "Saved to Firebase" if saved else "Firebase save failed"
-        await query.edit_message_caption(
-            f"Approved!\nUser: {payment['user_id']}\n"
-            f"Key: {key}\nPlan: {payment['plan_name']}\n{status}"
-        )
+        await query.edit_message_caption(f"Approved!\nUser: {payment['user_id']}\nKey: {key}\nPlan: {payment['plan_name']}\n{'Saved to Firebase' if saved else 'Firebase save failed'}")
         pending_payments.pop(payment_id, None)
-
     elif data.startswith("reject_"):
         payment_id = data.replace("reject_", "")
         payment = pending_payments.get(payment_id)
@@ -206,18 +141,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await context.bot.send_message(
             chat_id=payment["user_id"],
-            text=(
-                "Payment Rejected!\n\n"
-                "Payment could not be verified.\n"
-                "Pay to correct numbers:\n"
-                "bKash: 01313267554\n"
-                "Nagad: 01313267551\n\n"
-                "Help: @tarakislam1"
-            )
+            text="Payment Rejected!\n\nPayment could not be verified.\nbKash: 01313267554\nNagad: 01313267551\n\nHelp: @tarakislam1"
         )
         await query.edit_message_caption(f"Rejected!\nUser: {payment['user_id']}")
         pending_payments.pop(payment_id, None)
-
 
 async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -229,46 +156,30 @@ async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan_id = args[0]
     key = generate_key()
     saved = save_key_firebase(key, plan_id)
-    status = "Saved to Firebase" if saved else "Firebase save failed"
-    await update.message.reply_text(
-        f"New Key:\n{key}\nPlan: {PLANS[plan_id]['name']}\n{status}"
-    )
-
+    await update.message.reply_text(f"New Key:\n{key}\nPlan: {PLANS[plan_id]['name']}\n{'Saved to Firebase' if saved else 'Firebase save failed'}")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     total, active = get_stats_firebase()
-    await update.message.reply_text(
-        f"Stats:\nTotal Keys: {total}\n"
-        f"Active: {active}\n"
-        f"Pending: {len(pending_payments)}"
-    )
+    await update.message.reply_text(f"Stats:\nTotal Keys: {total}\nActive: {active}\nPending: {len(pending_payments)}")
 
-
-async def main():
+def main():
     app = Application.builder().token(BOT_TOKEN).build()
-
     conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", start),
-            MessageHandler(filters.PHOTO, receive_photo),
-        ],
+        entry_points=[CommandHandler("start", start), MessageHandler(filters.PHOTO, receive_photo)],
         states={
             PHOTO: [MessageHandler(filters.PHOTO, receive_photo)],
             SELECT_PLAN: [CallbackQueryHandler(select_plan, pattern="^plan_")],
         },
         fallbacks=[CommandHandler("start", start)],
     )
-
     app.add_handler(conv_handler)
     app.add_handler(CallbackQueryHandler(admin_callback, pattern="^(approve|reject)_"))
     app.add_handler(CommandHandler("genkey", genkey))
     app.add_handler(CommandHandler("stats", stats))
-
     logger.info("Bot starting...")
-    await app.run_polling(drop_pending_updates=True)
-
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
