@@ -1,7 +1,5 @@
 import logging
-import random
-import string
-from datetime import datetime
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -17,6 +15,7 @@ ADMIN_ID = 8157078800
 # ===== STATES =====
 PHOTO = 1
 SELECT_PLAN = 2
+WAIT_KEY = 3
 
 # ===== STORAGE =====
 pending_payments = {}
@@ -102,40 +101,51 @@ async def plan_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Your payment is being reviewed. Please wait..."
     )
 
-    # Forward to admin
-    keyboard = [
-        [InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}")],
-    ]
+    # Forward to admin with photo
     caption = (
         f"New Payment Request!\n\n"
         f"User: {username}\n"
         f"User ID: {user_id}\n"
         f"Plan: {plan['name']} ({plan['bdt']} BDT / {plan['usdt']} USDT)\n\n"
-        f"To APPROVE, send:\n"
-        f"/approve {user_id} YOUR-KEY-HERE\n\n"
-        f"Example:\n"
-        f"/approve {user_id} ABCD-EFGH-IJKL"
+        f"Reply with key to approve:\n"
+        f"/key {user_id} PASTE-KEY-HERE"
     )
+
+    keyboard = [
+        [InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}")],
+    ]
+
     await context.bot.send_photo(
         chat_id=ADMIN_ID,
         photo=context.user_data["photo_id"],
         caption=caption,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+    # Ask admin to send key
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=(
+            f"Payment from {username}\n"
+            f"Plan: {plan['name']}\n\n"
+            f"Paste key below and send:\n"
+            f"Format: /key {user_id} XXXX-XXXX-XXXX"
+        )
+    )
+
     return ConversationHandler.END
 
-# ===== ADMIN APPROVE WITH KEY =====
-async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== ADMIN SEND KEY =====
+async def send_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("You are not admin!")
+        await update.message.reply_text("Not admin!")
         return
 
     args = context.args
     if len(args) < 2:
         await update.message.reply_text(
-            "Usage: /approve [user_id] [KEY]\n\n"
-            "Example:\n"
-            "/approve 987654321 ABCD-EFGH-IJKL"
+            "Format: /key [user_id] [KEY]\n"
+            "Example: /key 123456789 ABCD-EFGH-IJKL"
         )
         return
 
@@ -143,29 +153,55 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = int(args[0])
         key = args[1].upper().strip()
     except:
-        await update.message.reply_text("Invalid format! Use: /approve [user_id] [KEY]")
+        await update.message.reply_text("Invalid! Use: /key [user_id] [KEY]")
         return
 
-    # Validate key format XXXX-XXXX-XXXX
-    import re
     if not re.match(r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$', key):
         await update.message.reply_text(
             "Invalid key format!\n"
-            "Key must be: XXXX-XXXX-XXXX\n"
+            "Must be: XXXX-XXXX-XXXX\n"
             "Example: ABCD-EFGH-1234"
         )
         return
 
-    # Get payment info
-    payment = pending_payments.get(user_id)
-    if payment:
-        plan_name = payment.get("plan_name", "Unknown")
-        username = payment.get("username", "User")
-    else:
-        plan_name = "Unknown"
-        username = "User"
+    payment = pending_payments.get(user_id, {})
+    plan_name = payment.get("plan_name", "Unknown")
+    username = payment.get("username", "User")
 
-    # Send key to user
+    # Show confirm buttons
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}_{key}"),
+            InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}"),
+        ]
+    ]
+
+    await update.message.reply_text(
+        f"Confirm Approval:\n\n"
+        f"User: {username}\n"
+        f"Plan: {plan_name}\n"
+        f"Key: {key}\n\n"
+        f"Press APPROVE to send key to user:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ===== APPROVE CALLBACK =====
+async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("Not admin!")
+        return
+    await query.answer()
+
+    data = query.data.replace("approve_", "")
+    parts = data.split("_", 1)
+    user_id = int(parts[0])
+    key = parts[1]
+
+    payment = pending_payments.get(user_id, {})
+    plan_name = payment.get("plan_name", "Unknown")
+    username = payment.get("username", "User")
+
     try:
         await context.bot.send_message(
             chat_id=user_id,
@@ -174,40 +210,40 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Your Premium Key:\n"
                 f"`{key}`\n\n"
                 f"Plan: {plan_name}\n\n"
-                f"How to activate:\n"
-                f"1. Go to: https://tarajinabegum1-bot.github.io/pro-tools-hub/index.html\n"
-                f"2. Enter the key above\n"
+                f"How to use:\n"
+                f"1. Open PRO TOOLS HUB\n"
+                f"2. Enter the key\n"
                 f"3. Click Unlock Access\n\n"
                 f"Enjoy Premium!"
             ),
             parse_mode="Markdown"
         )
 
-        # Confirm to admin
-        await update.message.reply_text(
-            f"Approved!\n\n"
+        await query.edit_message_text(
+            f"APPROVED!\n\n"
             f"User: {username}\n"
-            f"User ID: {user_id}\n"
             f"Plan: {plan_name}\n"
-            f"Key Sent: {key}"
+            f"Key: {key}\n"
+            f"Key sent successfully!"
         )
 
-        # Remove from pending
         if user_id in pending_payments:
             del pending_payments[user_id]
 
     except Exception as e:
-        await update.message.reply_text(f"Error sending key to user: {e}")
+        await query.edit_message_text(f"Error: {e}")
 
-# ===== ADMIN REJECT =====
+# ===== REJECT CALLBACK =====
 async def reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != ADMIN_ID:
-        await query.answer("You are not admin!")
+        await query.answer("Not admin!")
         return
     await query.answer()
 
     user_id = int(query.data.replace("reject_", ""))
+    payment = pending_payments.get(user_id, {})
+    username = payment.get("username", "User")
 
     try:
         await context.bot.send_message(
@@ -215,24 +251,27 @@ async def reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=(
                 "Payment Rejected!\n\n"
                 "Your payment was not verified.\n"
-                "Please check:\n"
-                "- Correct bKash/Nagad/USDT number\n"
-                "- Send clear screenshot\n\n"
-                "Try again or contact: @tarakislam1"
+                "Please check your payment and try again.\n\n"
+                "Contact: @tarakislam1"
             )
         )
-        await query.edit_message_caption(
-            caption=query.message.caption + "\n\nSTATUS: REJECTED"
+
+        await query.edit_message_text(
+            f"REJECTED!\n"
+            f"User: {username}\n"
+            f"Notification sent."
         )
+
         if user_id in pending_payments:
             del pending_payments[user_id]
+
     except Exception as e:
-        await query.message.reply_text(f"Error: {e}")
+        await query.edit_message_text(f"Error: {e}")
 
 # ===== STATS =====
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("You are not admin!")
+        await update.message.reply_text("Not admin!")
         return
     count = len(pending_payments)
     await update.message.reply_text(
@@ -265,8 +304,9 @@ def main():
     )
 
     app.add_handler(conv)
-    app.add_handler(CommandHandler("approve", approve))
+    app.add_handler(CommandHandler("key", send_key))
     app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CallbackQueryHandler(approve_callback, pattern="^approve_"))
     app.add_handler(CallbackQueryHandler(reject_callback, pattern="^reject_"))
 
     logger.info("Bot started!")
