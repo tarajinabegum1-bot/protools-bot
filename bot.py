@@ -1,30 +1,27 @@
 import logging
 import re
+import os
+import sys
+import threading
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 )
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
 
-# ===== CONFIG =====
 BOT_TOKEN = "8851108752:AAERyC1zOg1v-kH7IZcBodmI5hgUTut9p2s"
 ADMIN_ID = 8157078800
 
-# ===== STATES =====
 PHOTO = 1
 SELECT_PLAN = 2
-WAIT_KEY = 3
 
-# ===== STORAGE =====
 pending_payments = {}
 
-# ===== LOGGING =====
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===== KEEP ALIVE =====
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -37,7 +34,6 @@ def run_server():
     server = HTTPServer(("0.0.0.0", 8080), Handler)
     server.serve_forever()
 
-# ===== PLANS =====
 PLANS = {
     "7d": {"name": "7 Days", "bdt": "1200", "usdt": "11"},
     "15d": {"name": "15 Days", "bdt": "2200", "usdt": "20"},
@@ -45,7 +41,6 @@ PLANS = {
     "lifetime": {"name": "Lifetime", "bdt": "5500", "usdt": "50"},
 }
 
-# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "Welcome to PRO TOOLS HUB!\n\n"
@@ -64,7 +59,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
     return PHOTO
 
-# ===== PHOTO RECEIVED =====
 async def photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["photo_id"] = update.message.photo[-1].file_id
     keyboard = [
@@ -74,12 +68,11 @@ async def photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Lifetime - 5500 BDT / 50 USDT", callback_data="plan_lifetime")],
     ]
     await update.message.reply_text(
-        "Screenshot received! Now select your plan:",
+        "Screenshot received! Select your plan:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return SELECT_PLAN
 
-# ===== PLAN SELECTED =====
 async def plan_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -101,41 +94,25 @@ async def plan_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Your payment is being reviewed. Please wait..."
     )
 
-    # Forward to admin with photo
+    keyboard = [
+        [InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}")],
+    ]
     caption = (
         f"New Payment Request!\n\n"
         f"User: {username}\n"
         f"User ID: {user_id}\n"
         f"Plan: {plan['name']} ({plan['bdt']} BDT / {plan['usdt']} USDT)\n\n"
-        f"Reply with key to approve:\n"
-        f"/key {user_id} PASTE-KEY-HERE"
+        f"To APPROVE send:\n"
+        f"/key {user_id} XXXX-XXXX-XXXX"
     )
-
-    keyboard = [
-        [InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}")],
-    ]
-
     await context.bot.send_photo(
         chat_id=ADMIN_ID,
         photo=context.user_data["photo_id"],
         caption=caption,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
-    # Ask admin to send key
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=(
-            f"Payment from {username}\n"
-            f"Plan: {plan['name']}\n\n"
-            f"Paste key below and send:\n"
-            f"Format: /key {user_id} XXXX-XXXX-XXXX"
-        )
-    )
-
     return ConversationHandler.END
 
-# ===== ADMIN SEND KEY =====
 async def send_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("Not admin!")
@@ -153,14 +130,13 @@ async def send_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = int(args[0])
         key = args[1].upper().strip()
     except:
-        await update.message.reply_text("Invalid! Use: /key [user_id] [KEY]")
+        await update.message.reply_text("Invalid format!")
         return
 
     if not re.match(r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$', key):
         await update.message.reply_text(
             "Invalid key format!\n"
-            "Must be: XXXX-XXXX-XXXX\n"
-            "Example: ABCD-EFGH-1234"
+            "Must be: XXXX-XXXX-XXXX"
         )
         return
 
@@ -168,24 +144,21 @@ async def send_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan_name = payment.get("plan_name", "Unknown")
     username = payment.get("username", "User")
 
-    # Show confirm buttons
     keyboard = [
         [
             InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}_{key}"),
             InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}"),
         ]
     ]
-
     await update.message.reply_text(
-        f"Confirm Approval:\n\n"
+        f"Confirm:\n\n"
         f"User: {username}\n"
         f"Plan: {plan_name}\n"
         f"Key: {key}\n\n"
-        f"Press APPROVE to send key to user:",
+        f"Press APPROVE to send key:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ===== APPROVE CALLBACK =====
 async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != ADMIN_ID:
@@ -206,34 +179,30 @@ async def approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=user_id,
             text=(
-                f"Payment Approved!\n\n"
-                f"Your Premium Key:\n"
+                f"✅ Payment Approved!\n\n"
+                f"🔑 Your Premium Key:\n"
                 f"`{key}`\n\n"
-                f"Plan: {plan_name}\n\n"
-                f"How to use:\n"
-                f"1. Open PRO TOOLS HUB\n"
+                f"📋 Plan: {plan_name}\n\n"
+                f"▶️ How to use:\n"
+                f"1. Open PRO TOOLS HUB app\n"
                 f"2. Enter the key\n"
                 f"3. Click Unlock Access\n\n"
-                f"Enjoy Premium!"
+                f"🎉 Enjoy Premium!"
             ),
             parse_mode="Markdown"
         )
-
         await query.edit_message_text(
-            f"APPROVED!\n\n"
+            f"✅ APPROVED!\n\n"
             f"User: {username}\n"
             f"Plan: {plan_name}\n"
             f"Key: {key}\n"
-            f"Key sent successfully!"
+            f"Key sent!"
         )
-
         if user_id in pending_payments:
             del pending_payments[user_id]
-
     except Exception as e:
         await query.edit_message_text(f"Error: {e}")
 
-# ===== REJECT CALLBACK =====
 async def reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != ADMIN_ID:
@@ -249,68 +218,78 @@ async def reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=user_id,
             text=(
-                "Payment Rejected!\n\n"
+                "❌ Payment Rejected!\n\n"
                 "Your payment was not verified.\n"
-                "Please check your payment and try again.\n\n"
+                "Please check and try again.\n\n"
                 "Contact: @tarakislam1"
             )
         )
-
         await query.edit_message_text(
-            f"REJECTED!\n"
-            f"User: {username}\n"
-            f"Notification sent."
+            f"❌ REJECTED!\n"
+            f"User: {username}"
         )
-
         if user_id in pending_payments:
             del pending_payments[user_id]
-
     except Exception as e:
         await query.edit_message_text(f"Error: {e}")
 
-# ===== STATS =====
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("Not admin!")
         return
-    count = len(pending_payments)
     await update.message.reply_text(
         f"Bot Stats:\n\n"
-        f"Pending Payments: {count}\n"
-        f"Bot Status: Running"
+        f"Pending: {len(pending_payments)}\n"
+        f"Status: Running"
     )
 
-# ===== CANCEL =====
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
 
-# ===== MAIN =====
+def keep_alive_ping():
+    while True:
+        try:
+            import urllib.request
+            urllib.request.urlopen("https://protools-bot.onrender.com")
+            logger.info("Self ping OK")
+        except:
+            pass
+        time.sleep(240)
+
 def main():
     threading.Thread(target=run_server, daemon=True).start()
+    threading.Thread(target=keep_alive_ping, daemon=True).start()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    while True:
+        try:
+            logger.info("Bot starting...")
+            app = Application.builder().token(BOT_TOKEN).build()
 
-    conv = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", start),
-            MessageHandler(filters.PHOTO, photo_received),
-        ],
-        states={
-            PHOTO: [MessageHandler(filters.PHOTO, photo_received)],
-            SELECT_PLAN: [CallbackQueryHandler(plan_selected, pattern="^plan_")],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
+            conv = ConversationHandler(
+                entry_points=[
+                    CommandHandler("start", start),
+                    MessageHandler(filters.PHOTO, photo_received),
+                ],
+                states={
+                    PHOTO: [MessageHandler(filters.PHOTO, photo_received)],
+                    SELECT_PLAN: [CallbackQueryHandler(plan_selected, pattern="^plan_")],
+                },
+                fallbacks=[CommandHandler("cancel", cancel)],
+            )
 
-    app.add_handler(conv)
-    app.add_handler(CommandHandler("key", send_key))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CallbackQueryHandler(approve_callback, pattern="^approve_"))
-    app.add_handler(CallbackQueryHandler(reject_callback, pattern="^reject_"))
+            app.add_handler(conv)
+            app.add_handler(CommandHandler("key", send_key))
+            app.add_handler(CommandHandler("stats", stats))
+            app.add_handler(CallbackQueryHandler(approve_callback, pattern="^approve_"))
+            app.add_handler(CallbackQueryHandler(reject_callback, pattern="^reject_"))
 
-    logger.info("Bot started!")
-    app.run_polling(drop_pending_updates=True)
+            app.run_polling(drop_pending_updates=True)
+
+        except Exception as e:
+            logger.error(f"Bot crashed: {e}")
+            logger.info("Restarting in 10 seconds...")
+            time.sleep(10)
 
 if __name__ == "__main__":
     main()
